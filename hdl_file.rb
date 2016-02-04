@@ -1,0 +1,3 @@
+class HdlFile < File
+
+end
