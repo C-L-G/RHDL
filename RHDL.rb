@@ -30,15 +30,25 @@ class Rhdl
         hld_module_hash.[name.to_sym] = HdlModule.new(name)
     end
 
-    def parse_parameter (module_name,str)
+    def parse_head_parameters (module_name,str)
         str == /parameter\s*(\[.+?\])?\s*\w+\s*=\s*\w+/
         curr_module = hld_module_hash[module_name.to_sym]
         str.split(',').each do |item|
             抛出参数解析错误 unless item == /^\s*parameter\s*(\[.+?\])?\s*(\w+)\s*=\s*(\w+)\s*$/m
             抛出参数重定义异常 if curr_module.parameter.instance_variables.include? $2
-            curr_module.parameter.send($2+'=',width:$1,value:$3)
+            curr_module.parameters.send($2+'=',width:$1,value:$3)
         end
     end
+
+    def parse_interface(module_name,str)
+
+    end
+
+    def parse_IO (module_id,str)
+        str == /(input|output|inout|inf)\s*(\[.+?\])\s*(\w+)\s*,\s*$/
+        case $1
+        when "input"
+            module_id.interface.send($2+'=',$1,)
 
 
 

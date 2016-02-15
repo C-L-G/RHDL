@@ -1,3 +1,4 @@
+require "LogicValue"
 class Logic
     attr_reader :width, :init_value
     attr_accessor :value
@@ -76,7 +77,7 @@ class LogicArray
         if wire_item.is_a? Logic
             @logic_array []
             size.each do |item|
-                抛出非数字异常 unless item.is_a? Number
+                抛出非数字异常 unless item.integer?
 
             end
         end
@@ -90,3 +91,4 @@ class LogicArray
             Array.new(array_size.first,gen_array(def_value,array_size))
         end
     end
+end
