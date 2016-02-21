@@ -37,9 +37,18 @@ class Node
         end
     end
 
+    def self.parse_nodes(str)
+        cstr = str.gsub(/\s*\.\.\.\s*/m,'')
+        lines = cstr.split(/[\r\n]/)
+        lines.each do |item|
+            next if item =~ /^\s*&/
+            Node.parse_node item
+        end
+    end
+
     def self.parse_node(str)
         cstr  = str.compact
-        return if cstr !~ /^(\w+)\s*=\s*(.+?)(,|;)/m
+        抛出语法异常 if cstr !~ /^(\w+)\s*=\s*(.+?)/
         ## 创建 新节点
         curr_node_id = $1.to_sym
         curr_node = Node.create curr_node_id
@@ -125,6 +134,24 @@ class Node
             end
         end
         return st_formula
+    end
+
+    ## define math
+    def self.define_math_method(sym,&block)
+        define_method sym do |next_node|
+            抛出没有值错误 unless value
+            抛出没有值错误 unless next_node.value
+            block.call(next_node)
+        end
+    end
+
+    math_array = ['+','-','*','/','%','**','|','&']
+    begin
+        math_array.each do |item|
+            define_math_method item do |next_node|
+                value.send(item,next_node.value)
+            end
+        end
     end
 
 end
