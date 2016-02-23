@@ -1,6 +1,12 @@
 class ParsePool
+    @@origin_str = ''
+    @@processed_str = ''
+    @@level_index = 0
+    @@curr_subpools  = nil
+    @@curr_subpools_closure = nil
 
-    def initialize(begin_re,end_re=nil)
+    attr_accessor :inherit_subpools
+    def initialize(begin_re,end_re=nil,pro_level=:PARSE,name = 'DEFAULT')
         if begin_re.is_a? String
             @begin_re = Regexp.new(begin_re)
         else
@@ -16,80 +22,139 @@ class ParsePool
         @subpools = [] ## pool array [pool,count,force,continue]
         @curr_execute_closure = []
         @curr_end_exe_closure = []
+        @level = pro_level
+        @inherit_subpools = nil
+        @name = name
+    end
+
+    def self.origin_string(str)
+        @@origin_str = str
+    end
+
+    def self.add_public_subpools_to(*args)
+        args.each do |pool|
+            pool.add_public_subpools
+        end
     end
 
     def add_curr_execute(&block)
         @curr_execute_closure << block
     end
 
-    def add_seq_to(direct=:begin,pool,count=nil,force=true)
+    def add_seq_to(direct=:begin,pool=nil,cnt=nil,force=true)
         if direct == :begin
-            @begin_seq_pool << [pool,count,force]
+            @begin_seq_pool << [pool,cnt,force]
         elsif direct == :end
-            @end_seq_pool << [pool,count,force]
+            @end_seq_pool << [pool,cnt,force]
         end
     end
 
-    def parse(str)
-        str_res = match(str)
-        unless str_res
-            抛出无法解析错误
+    def add_subpool (pool=nil,count=nil,force=false,discontinue=false)
+        @subpools.delete_if do |item|
+            item[0] == pool
         end
-        return str_res
+        @subpools << [pool,count,force,discontinue]
+    end
+    def parse
+        unless match
+            raise "无法解析错误:"+(@@origin_str.lstrip)[0..9]+'...'
+        end
+        return @@origin_str
     end
 
-    def can_parse?(str)
-        str_res = match(str)
-        unless str_res
+    def can_parse?
+        unless match
             return nil
         end
-        return str_res
+        return @@origin_str
     end
 
-    def try_parse(str)
-        str_res = match(str)
-        unless str_res
-            return str
-        end
-        return str_res
+    def try_parse
+        match
+        @@origin_str
     end
 
-    def match_begin(str)
+    def match_begin
         $~ = nil
-        cstr_res = cstr.sub(@begin_re) do
+        cmatch = nil
+        @@origin_str.sub!(@begin_re) do |mstr|
             cmatch = $~
+            if @level == :pre_parse
+                @@processed_str << "<<<LEVEL_PRE_PARSE_#{@@level_index}>>>"+mstr
+                @curr_level_index = @@level_index
+                @@level_index += 1
+            else
+                @@processed_str << mstr
+            end
             ''
         end
-        return nil if cmatch
+        return nil unless cmatch
         ##execute current closure
-        curr_mch_avgs = cmatch[1,@begin_re.length]
+        curr_mch_avgs = cmatch[1,@begin_re.names.length]
         @curr_execute_closure.each do |item|
             item.call(*curr_mch_avgs)
         end
-        cstr_res
+        @@origin_str
     end
 
-    def match_end(str)
-        return str unless @end_re
+    def match_end
+        p @name
+        p @@origin_str
+        unless @end_re
+            @@processed_str << "<<<END_LEVEL_PRE_PARSE_#{@curr_level_index}>>>"
+            return @@origin_str
+        end
         $~ = nil
-        cstr_res = cstr.sub(@end_re) do
+        cmatch = nil
+        @@origin_str.sub!(@end_re) do |mstr|
             cmatch = $~
+            if @level == :pre_parse
+                @@processed_str << mstr+"<<<END_LEVEL_PRE_PARSE_#{@curr_level_index}>>>"
+                @@level_index += 1
+            else
+                @@processed_str << mstr
+            end
             ''
         end
-        return nil if cmatch
+        return nil unless $~
         ##execute current closure
-        curr_mch_avgs = cmatch[1,@begin_re.length]
+        curr_mch_avgs = cmatch[1,@end_re.names.length]
         @curr_end_exe_closure.each do |item|
             item.call(*curr_mch_avgs)
         end
-        cstr_res
+        @@origin_str
     end
 
-    def match(str)
-        cstr = str.lstrip
+    def set_envs
+        if inherit_subpools
+             @subpools << @@curr_subpools
+             @curr_execute_closure << @@curr_subpools_closure
+         else
+             @@curr_subpools = @subpools
+             @@curr_subpools_closure = @curr_execute_closure
+         end
+     end
+
+     def reset_envs
+         unless inherit_subpools
+             @@curr_subpools = @subpools
+             @@curr_subpools_closure = @curr_execute_closure
+         end
+     end
+
+    def match
+        ## compact str
+        if @@origin_str[0] =~ /\s/
+            @@origin_str.sub!(/^\s+/m) do |mstr|
+                @@processed_str << mstr
+                ''
+            end
+        end
+        ## set subpools
+        set_envs
+        ##cstr = str.lstrip
         ##execute match begin
-        cstr_res = match_begin(str)
-        return nil unless cstr_res
+        return nil unless match_begin
         ##excute match begin sequence
         @begin_seq_pool.each do |item|
             if item[1].integer?
@@ -98,51 +163,48 @@ class ParsePool
                 loop_times = 1
             end
             (loop_times).times do
-                if item[3]
-                    cstr_res = item[0].parse(cstr_res)
+                if item[2]
+                    item[0].parse
                 else
-                    cstr_res = item[0].try_parse(cstr_res)
+                    item[0].try_parse
                 end
             end
         end
         ##excute match subpools
-        parse_execute? = nil
-        force_execute? = nil
-        continue_execute? = nil
+        parse_execute = nil
+        force_execute = nil
+        continue_execute = nil
         subpools_count = @subpools.map{|item| item[1]}
         subpools_force = @subpools.map{|item| item[2]}
         last_parse_sub = nil
         begin
-            parse_execute? = nil
+            parse_execute = nil
             @subpools.each_index do |index|
-                parse_str_res = @subpools[index][0].can_parse? cstr_res
+                parse_str_res = @subpools[index][0].can_parse?
                 if parse_str_res
-                    parse_execte? = true
-                    cstr_res = parse_str_res
+                    parse_execte = true
                     if subpools_count[index].integer?
-                        抛出多次解析错误 unless subpools_count[index] > 0
+                        raise "多次解析错误:"+(@@origin_str.lstrip)[0..9]+'...' unless subpools_count[index] > 0
                         subpools_count[index] -= 1
                     end
                     if subpools_force[index]    ## force
                         subpools_force[index]   = nil
                     end
                     if last_parse_sub == index
-                        抛出连续解析错误 if @subpools[index][3]
+                        raise "连续解析错误:"+(@@origin_str.lstrip)[0..9]+'...' if @subpools[index][3]
                     end
                     last_parse_sub = index
                 else
-                    parse_execute? = parse_execute?
-                    if subp_count[2]    ## force
-                        subp_count[2]   = nil
+                    parse_execute = parse_execute
+                    if @subpools[index][2]    ## force
+                        @subpools[index][2]   = nil
                     end
                 end
-                subp_count
             end
-        end while parse_execute?
-        抛出没有解析错误 if subpools_force.include?(true)
+        end while parse_execute
+        raise "没有解析错误:"+(@@origin_str.lstrip)[0..9]+'...' if subpools_force.include?(true)
         ##execute end match
-        cstr_res = match_end(cstr_res)
-        抛出结尾异常 unless cstr_res
+        raise "结尾异常:"+(@@origin_str.lstrip)[0..9]+'...' unless match_end
         ##excute match end sequence
         @end_seq_pool.each do |item|
             if item[1].integer?
@@ -151,29 +213,93 @@ class ParsePool
                 loop_times = 1
             end
             (loop_times).times do
-                if item[3]
-                    cstr_res = item[0].parse(cstr_res)
+                if item[2]
+                    cstr_res = item[0].parse
                 else
-                    cstr_res = item[0].try_parse(cstr_res)
+                    cstr_res = item[0].try_parse
                 end
             end
         end
-        return cstr_res
+        ## reset subpools
+        reset_envs
+        @@origin_str
     end
 
 end
 
-module_filed = ParsePool(/^module\s/,/^endmodule\b/)
-module_id_name = ParsePool(/^\w+/)
-module_one_line_comment = ParsePool(/^\/\//,/.*?\n/)
-module_mul_lines_comment = ParsePool(/^\/\*/,/.*?\*\//m)
-interface_field = ParsePool(/^interface\s/,/^endinterface\b/)
-parameter_field = ParsePool(/^parameter\b/,/^endparameter\b/)
-localparam_filed = ParsePool(/^localparam\b/,/^endlocalparam\b/)
-ff_block_filed = ParsePool(/^ffblock\b/,/^endff\b/)
-comb_block_filed = ParsePool(/^comb\b/,/^endcomb\b/)
+## field define
+module_field = ParsePool.new(/^module\s/,/^endmodule\b/)
+id_name = ParsePool.new(/^\w+/)
+one_line_comment = ParsePool.new(/^\/\//,/.*?\n/)
+mul_lines_comment = ParsePool.new(/^\/\*/,/.*?\*\//m)
+interface_field = ParsePool.new(/^interface\s/,/^endinterface\b/)
+parameter_field = ParsePool.new(/^parameter\b/,/^endparameter\b/)
+localparam_field = ParsePool.new(/^localparam\b/,/^endlocalparam\b/)
+ff_block_field = ParsePool.new(/^ffblock\b/,/^endff\b/)
+comb_block_field = ParsePool.new(/^comb\b/,/^endcomb\b/)
+macro_if_field = ParsePool.new(/^\`IF/,/^\`ENDIF/,:pre_parse)
+macro_else_field = ParsePool.new(/^\`ELSE/,nil,:pre_parse)
+macro_elsif_field = ParsePool.new(/^\`ELSIF/,nil,:pre_parse)
+io_field = ParsePool.new(/^(?-i:input|output|inout)\b/)
+range_field = ParsePool.new(/^\[/,/^\]/)
+range_symb = ParsePool.new(/^(?::|-:|\+:)/)
+symbol_field = ParsePool.new(/^(?:\*\*|\*|%|\+|-|\/|==|!=)/)
+pre_symbol_field = ParsePool.new(/^(?:~)/)
+parenthese_field = ParsePool.new(/^\(/,/^\)/)
+
+ParsePool.class_eval do
+    define_method "add_public_subpools" do
+        add_subpool(pool=macro_if_field,count=nil,force=nil,discontinue=nil)
+        add_subpool(pool=one_line_comment,count=nil,force=nil,discontinue=nil)
+        add_subpool(pool=mul_lines_comment,count=nil,force=nil,discontinue=nil)
+    end
+end
+## module ##
+module_field.add_seq_to :begin,id_name,1,:force
+module_field.add_subpool(pool=macro_if_field,count=nil,force=nil,discontinue=nil)
+module_field.add_subpool(pool=interface_field,count=1,force=nil,discontinue=nil)
+module_field.add_subpool(pool=parameter_field,count=nil,force=nil,discontinue=nil)
+module_field.add_subpool(pool=localparam_field,count=nil,force=nil,discontinue=nil)
+module_field.add_subpool(pool=ff_block_field,count=nil,force=nil,discontinue=nil)
+module_field.add_subpool(pool=comb_block_field,count=nil,force=nil,discontinue=nil)
+## interface ##
+interface_field.add_seq_to :begin,id_name,1,:force
+interface_field.add_subpool(pool=io_field,count=nil,force=nil,discontinue=nil)
+## parameter
+parameter_field.add_seq_to :begin,id_name,1,:force
+## localparam
+localparam_field.add_seq_to :begin,id_name,1,:force
+## ff_block
+ff_block_field.add_seq_to :begin,id_name,1,:force
+## comb_block
+ff_block_field.add_seq_to :begin,id_name,1,:force
+## MACRO ##
+macro_if_field.add_seq_to :begin,id_name,1,:force
+macro_if_field.add_subpool(pool=macro_if_field,count=nil,force=nil,discontinue=nil)
+macro_if_field.add_subpool(pool=macro_elsif_field,count=nil,force=nil,discontinue=nil)
+macro_if_field.add_subpool(pool=macro_else_field,count=nil,force=nil,discontinue=true)
+macro_if_field.inherit_subpools = true
 ## io ##
-io_field = ParsePool(/^(?-i:input|output|inout)\b/)
-range_filed = ParsePool(/^\[/,/^\]/)
-symbol_filed = ParsePool(/^(?:\*\*|\*|%|\+|-|\/|==|!=)/)
-pre_symbol_filed = ParsePool(/^(?:~)/)
+## RANGE ##
+range_field.add_subpool(pool=symbol_field,count=nil,force=nil,discontinue=true)
+range_field.add_subpool(pool=id_name,count=nil,force=nil,discontinue=true)
+range_field.add_subpool(pool=range_symb,count=1,force=true,discontinue=true)
+## -> ##
+## symbol ##
+## parenthese ##
+parenthese_field.add_subpool(pool=symbol_field,count=nil,force=nil,discontinue=true)
+parenthese_field.add_subpool(pool=id_name,count=nil,force=nil,discontinue=true)
+parenthese_field.add_subpool(pool=range_field,count=nil,force=nil,discontinue=true)
+## add_public_subpools_t
+
+AAA = "pppppppppp"
+
+ParsePool.add_public_subpools_to(   module_field,
+                                    interface_field,
+                                    parameter_field,
+                                    localparam_field,
+                                    ff_block_field,
+                                    comb_block_field,
+                                    io_field,
+                                    range_field,
+                                    parenthese_field)
