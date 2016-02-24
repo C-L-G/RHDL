@@ -7,7 +7,7 @@ class ParsePool
 
     attr_accessor :inherit_subpools,:name
     attr_reader :end_re,:begin_re
-    def initialize(name:"Pool",begin_re:/\./,end_re:nil,pro_level:(:parse))
+    def initialize(name:"Pool",begin_re:/\./,end_re:nil,pro_level:(:parse),discard_begin:nil,discard_end:nil)
         if begin_re.is_a? String
             @begin_re = Regexp.new(begin_re)
         else
@@ -28,6 +28,8 @@ class ParsePool
         @curr_end_closure = []
         @curr_begin_closure << lambda { printf "START PARSE #{@name} --> ";p @subpools.map{|item| item[:pool].name}}
         @curr_end_closure   << lambda { puts "COMPLETE PARSE #{@name}"}
+        @discard_begin = discard_begin
+        @discard_end = discard_end
     end
 
     def self.origin_string(str)
@@ -97,6 +99,7 @@ class ParsePool
     end
 
     def match_begin
+        return @@origin_str if @discard_begin
         $~ = nil
         cmatch = nil
         @@origin_str.sub!(@begin_re) do |mstr|
@@ -120,6 +123,7 @@ class ParsePool
     end
 
     def match_end
+        return @@origin_str if @discard_end
         unless @end_re
             @@processed_str << "<<<END_LEVEL_PRE_PARSE_#{@curr_level_index}>>>"
             return @@origin_str
@@ -142,7 +146,6 @@ class ParsePool
         @curr_end_closure.each do |item|
             item.call(*curr_mch_avgs)
         end
-
         @@origin_str
     end
 
@@ -285,6 +288,10 @@ symbol_field = ParsePool.new(name:"symbols",begin_re:/\A(?:\*\*|\*|%|\+|-|\/|==|
 pre_symbol_field = ParsePool.new(name:"pre symbols",begin_re:/\A(?:~)/)
 parenthese_field = ParsePool.new(name:" ( ) ",begin_re:/\A\(/,end_re:/\A\)/)
 
+variable_field = ParsePool.new(name:"变量 ",begin_re:/\A\w+/)
+operator_field = ParsePool.new(name:" 赋值语句 ",end_re:/\A[;\n]/)
+brace_field =  ParsePool.new(name:" 花括号 ",begin_re:/\A\{/,end_re:/\A\}/)
+
 def ParsePool.add_public_subpools_to(*args)
     args.each do |pool|
         pool.add_public_subpools
@@ -340,6 +347,18 @@ range_field.add_subpool(pool: range_symb,count: 1,force: true,discontinue: true)
 parenthese_field.add_subpool(pool: symbol_field,count: nil,force: nil,discontinue: true)
 parenthese_field.add_subpool(pool: id_name,count: nil,force: nil,discontinue: true)
 parenthese_field.add_subpool(pool: range_field,count: nil,force: nil,discontinue: true)
+## operator ##
+operator_field.add_seq_to(direct:(:begin),pool:variable_field,count:1,force:true)
+operator_field.add_seq_to(direct:(:begin),pool:ParsePool.new(begin_re:/\A\=/),count:1,force:true)
+operator_field.add_subpool(pool: variable_field,count: nil,force:true,discontinue: true)
+operator_field.add_subpool(pool: symbol_field,count: nil,force: nil,discontinue: true)
+operator_field.add_subpool(pool: parenthese_field,count: nil,force: nil,discontinue: true)
+operator_field.add_subpool(pool: brace_field,count: nil,force: nil,discontinue: true)
+## brace ##
+brace_field.add_subpool(pool: variable_field,count: nil,force:true,discontinue: true)
+brace_field.add_subpool(pool: ParsePool.new(begin_re:/\A,/),count: nil,force:nil,discontinue: true)
+## Variable ##
+variable_field.add_seq_to(direct:(:begin),pool:range_field,count:1,force:nil)
 ## add_public_subpools_t
 
 ParsePool.add_public_subpools_to(   module_field,
@@ -350,7 +369,8 @@ ParsePool.add_public_subpools_to(   module_field,
                                     comb_block_field,
                                     io_field,
                                     range_field,
-                                    parenthese_field)
+                                    parenthese_field
+                                    operator_field)
     define_method :exec_test do
         module_field.parse
     end
