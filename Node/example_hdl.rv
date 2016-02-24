@@ -8,22 +8,18 @@ module  XXXX
     endlocalparam
     /* comment */
 `ENDIF
-/* comment */
-comb CCC
-// comment
-endcomb
 
 ffblock FF
 /* comment */
 endff
 
+/* comment */
+comb CCC
+// comment
+endcomb
+
 interface IIII
-    input III //
-    output III
-    input [X:X]III
-    inout III [X:X]
-    /* xxxxx */
-    output [XX:XX] III [XX:XX]
+
 endinterface
 
 parameter XXXX
