@@ -1,3 +1,4 @@
+require "parseresult"
 class ParsePool
     @@origin_str = ''
     @@processed_str = ''
@@ -8,47 +9,44 @@ class ParsePool
     attr_accessor :inherit_subpools,:name
     attr_reader :end_re,:begin_re
     def initialize(name:"Pool",begin_re:/\./,end_re:nil,pro_level:(:parse),discard_begin:nil,discard_end:nil)
-        if begin_re.is_a? String
-            @begin_re = Regexp.new(begin_re)
-        else
-            @begin_re = begin_re
-        end
-        if end_re.is_a? String
-            @end_re  = Regexp.new(end_re)
-        else
-            @end_re = end_re
-        end
-        @begin_seq_pool = []   ## pool array [{pool:,count:,force:,closure:}]
-        @end_seq_pool = [] ## pool array [{pool:,count:,force:,closure:}]
-        @subpools = [] ## pool array [ {pool:,count:,force:,continue:,closure:} ]
-        @level = pro_level
+        @begin_seq_pools = []   ## pool array [{pool:,force:,closure:}] or  [[{pool:,force:,closure:},{pool:,force:,closure:,rel_closure}]...]
+        @end_seq_pools = []     ## pool array [{pool:,force:,closure:}] or  [[{pool:,force:,closure:},{pool:,force:,closure:,rel_closure}]...]
+        @subpools = []          ## pool array [{pool:,force:,closure:,count:,countinue:}] or  [[{pool:,force:,closure:},{pool:,force:,closure:,rel_closure}]...]
         @inherit_subpools = nil
         @name = name
-        @curr_begin_closure = []
-        @curr_end_closure = []
-        @curr_begin_closure << lambda { printf "START PARSE #{@name} --> ";p @subpools.map{|item| item[:pool].name}}
-        @curr_end_closure   << lambda { puts "COMPLETE PARSE #{@name}"}
-        @discard_begin = discard_begin
-        @discard_end = discard_end
+        ## closure
+        @complete_begin_seq_closure = []
+        @complete_end_seq_closure = []
+        @complete_subpools_closure = []
+
+        @parseresult = ParsseResult.new
+        @complete_begin_seq_closure << lambda { printf "START PARSE #{@name} --> ";p @subpools.map{|item| item[:pool].name}}
+        @complete_end_seq_closure   << lambda { puts "COMPLETE PARSE #{@name}"}
     end
 
     def self.origin_string(str)
         @@origin_str = str
     end
 
-    def add_begin_execute(&block)
-        @curr_begin_closure |= block
-    end
 
-    def add_end_execute(&block)
-        @curr_end_closure |= block
-    end
-
-    def add_seq_to(direct:(:begin),pool:nil,count:nil,force:true,closure:nil)
+    def add_seq_to(direct:(:begin),pool:nil,force:true,closure:nil)
         if direct == :begin
-            @begin_seq_pool << {:pool=>pool,:count=>count,:force=>force,:closure=>closure}
+            @begin_seq_pools << {:pool=>pool,:force=>force,:closure=>closure}
         elsif direct == :end
-            @end_seq_pool << {:pool=>pool,:count=>count,:force=>force,:closure=>closure}
+            @end_seq_pools << {:pool=>pool,:force=>force,:closure=>closure}
+        end
+    end
+
+    def add_list_to(direct:(:begin),pool_closure_array:nil)
+        list = []
+        pool_closure_array.each do |item|
+            list << {:pool=>item[:pool],:closure=>item[:closure]}
+        end
+        return  if list.empty?
+        if direct == :begin
+            @begin_seq_pools << list
+        elsif direct == :end
+            @end_seq_pools << list
         end
     end
 
@@ -57,6 +55,19 @@ class ParsePool
             item[0] == pool
         end
         @subpools << {:pool=>pool,:count=>count,:force=>force,:discontinue=> discontinue,:closure=>closure}
+    end
+
+    def add_sublist (count:nil,force:false,discontinue: false,pool_closure_array:nil)
+        list = []
+        pool_closure_array.each do |item|
+            @subpools.each do |subitem|
+                if subitem[:pool] == item[:pool]
+                    puts "警告:subpools 有重复项 #{subitem[:pool].name}"
+                end
+            end
+            list << {:pool=>item[:pool],:closure=>item[:colsure]}
+        end
+        @subpools << {:pool=>list,:count=>count,:force=>force,:discontinue=> discontinue}
     end
 
     def with_closure(*args,&block)
@@ -78,6 +89,20 @@ class ParsePool
             end
         end
         return @@origin_str
+    end
+
+    def parse(parsepkt,*args,&block)
+        curr_parsepkt = ParseResult.new(result:nil,orgin:parsepkt[:origin],match:'',rest:parsepkt[:rest])
+        closure_array = (args<<block)
+        with_closure closure_array do
+            curr_parsepkt = match curr_parsepkt
+        end
+        if curr_parsepkt[:result]
+            return curr_parsepkt
+        else
+            parsepkt[:result] = false
+            return parsepkt
+        end
     end
 
     def can_parse?(*args,&block)
@@ -120,6 +145,116 @@ class ParsePool
             item.call(*curr_mch_avgs)
         end
         @@origin_str
+    end
+
+    def match_seq(sequence,msg)
+        curr_closure = []
+        parsepkt = @parseresult
+        sequence.each do |item|
+            array_force = nil
+            if item[:pool].is_a? Regexp
+                parsepkt.match! item[:pool],item[:rel_closure] do |args|
+                    if item[:closure]
+                        curr_closure << lambda { item[:closure].call(*args)}
+                    end
+                end
+            elsif item[:pool].is_a? ParsePool
+                rel_parsepkt = item[:pool].parse(parsepkt)
+                if rel_parsepkt[:result]
+                    parsepkt.eat rel_parsepkt
+                    curr_closure << lambda { item[:closure].call(rel_parsepkt[:match]) } if item[:closure]
+                end
+            elsif item[:pool].is_a? Array
+                item[:pool].each do |arrayitem|
+                    rel_parsepkt = arrayitem[:pool].parse(parsepkt)
+                    if rel_parsepkt[:result]
+                        parsepkt.eat rel_parsepkt
+                        curr_closure << lambda { arrayitem[:closure].call(rel_parsepkt[:match]) if arrayitem[:closure]
+                        break
+                    end
+                end
+                array_force = true
+            end
+            if (parsepkt[:result]==nil) && (item[:force] || array_force)
+                raise "#{@name} 解析错误 #{msg} >>>"+parsepkt[:origin][0..19]+'......'
+            end
+        end
+        curr_closure.each do |item|
+            item.call
+        end
+        return  @parseresult = parsepkt
+    end
+
+    def match_begin
+        match_seq(@begin_seq_pools,"BEGIN")
+        @complete_begin_seq_closure.each do {|item| item.call(parsepkt[:match]) }
+    end
+
+    def match_end
+        match_seq(@end_seq_pools,"END")
+        @complete_end_seq_closure.each do {|item| item.call(parsepkt[:match]) }
+    end
+
+    def match_subpools
+        curr_closure = []
+        parsepkt = @parseresult
+        ## subpools status
+        parse_execute = nil
+        force_execute = nil
+        continue_execute = nil
+        subpools_count = @subpools.map{|item| item[:count]}
+        subpools_force = @subpools.map{|item| item[:force]}
+        last_parse_sub = nil
+        cc = Proc.new do |pool,index,origin_str|
+            parse_execute = true
+            if subpools_count[index] && subpools_count[index].integer?
+                raise "#{@name} #{pool} 多次解析错误:"+(origin_str.lstrip)[0..19]+'...' unless subpools_count[index] > 0
+                subpools_count[index] -= 1
+            end
+            force_execute[index] = nil
+            if last_parse_sub == index
+                raise "#{@name} #{pool} 连续解析错误:"+(origin_str.lstrip)[0..19]+'...' if curr_subp[:countinue]
+            end
+            last_parse_sub = index
+        end
+        ## loop
+        begin
+            parse_execute = nil
+            @subpools.each_index do |index|
+                curr_subp = @subpools[index]
+                array_force = nil
+                if curr_subp[:pool].is_a? Regexp
+                    parsepkt.match! item[:pool],item[:rel_closure] do |args|
+                        if item[:closure]
+                            item[:closure].call(*args)
+                        end
+                    end
+                    cc.call "None",index,parsepkt[:origin]
+                elsif curr_subp[:pool].is_a? ParsePool
+                    rel_parsepkt = item[:pool].parse(parsepkt,*item[:closure])
+                    if rel_parsepkt[:result]
+                        parsepkt.eat rel_parsepkt
+                    end
+                    cc.call curr_subp[:pool].name,index,parsepkt[:origin]
+                elsif curr_subp[:pool].is_a? Array
+                    curr_subp[:pool].each do |arrayitem|
+                        rel_parsepkt = arrayitem[:pool].parse(parsepkt,*arrayitem[:closure])
+                        if rel_parsepkt[:result]
+                            parsepkt.eat rel_parsepkt
+                            cc.call arrayitem[:pool].name,index,parsepkt[:origin]
+                            break
+                        end
+                    end
+                    array_force = true
+                end
+                if (parsepkt[:result]==nil) && (item[:force] || array_force)
+                    raise "#{@name} 解析错误 >>>"+parsepkt[:origin][0..19]+'......'
+                end
+            end
+        end while parse_execute
+        raise "#{@name}>>没有解析错误:"+(parsepkt[:origin].lstrip)[0..9]+'...' unless subpools_force.reject{|item| item == nil }.empty?
+        (@@curr_exec_closure|@complete_subpools_closure).each do {|item| item.call(parsepkt[:match]) }
+        return  @parseresult = parsepkt
     end
 
     def match_end
