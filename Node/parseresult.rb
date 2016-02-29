@@ -5,6 +5,7 @@ class ParsseResult
         @origin = origin
         @match_str = match_str
         @rest = rest
+        @error_closure = lambda { puts "No Error"}
     end
 
     def match(re,rel_closure,&block)
@@ -38,8 +39,27 @@ class ParsseResult
             @match_str
         when :rest
             @rest
+        when :error
+            missing_method
         else
             nil
+        end
+    end
+
+    def []=(sym,value)
+        case sym.to_sym
+        when :result
+            @result = value
+        when :origin
+            @origin = value
+        when :match
+            @match_str = value
+        when :rest
+            @rest = value
+        when :error
+            @error_closure = value
+        else
+            missing_method
         end
     end
 
