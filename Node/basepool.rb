@@ -125,6 +125,25 @@ class BasePool
          @@curr_subpools = up_subpools
      end
 
+     def match_seq(sequence,msg)
+         curr_closure = []
+         return @parseresult if sequence || sequence.empty?
+         sequence.each do |baseseq_item|
+             protein = baseseq_item.protein
+             @parseresult = protein.parse @parseresult
+             unless @parseresult[:result]
+                 return  @parseresult
+                 lambda {puts "解析 #{@name} 错误 >> #{msg}"}
+             end
+             if @parseresult[:skip] == nil
+                curr_closure |= protein.closures
+            end
+         end
+         curr_closure.each {|item| item.call }
+          return  @parseresult
+     end
+
+
     def match_seq(sequence,msg)
         curr_closure = []
         parsepkt = @parseresult

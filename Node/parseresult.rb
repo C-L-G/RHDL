@@ -1,7 +1,8 @@
 class ParsseResult
     attr_accessor :result,:origin,:match_str,:rest
-    def initialize(result:nil,origin:"",match_str:"",rest:"")
+    def initialize(result:nil,skip:nil,origin:"",match_str:"",rest:"")
         @result = result
+        @skip = skip
         @origin = origin
         @match_str = match_str
         @rest = rest
