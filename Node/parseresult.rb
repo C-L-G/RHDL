@@ -2,28 +2,33 @@ class ParsseResult
     attr_accessor :result,:origin,:match_str,:rest
     def initialize(result:nil,skip:nil,origin:"",match_str:"",rest:"")
         @result = result
-        @skip = skip
         @origin = origin
         @match_str = match_str
         @rest = rest
-        @error_closure = lambda { puts "No Error"}
+        @pro_closure = []
+        @error_stack = []
+    #    @error_stack = lambda { puts "No Error"}
     end
 
-    def match(re,rel_closure,&block)
+    def match(re,re_closure,seq_closure)
         cmatch = nil
         mstr = ''
         rel = false
+        $~ = nil
         ostr = @origin.sub(re) do |mch|
             cmatch = $~
             mstr = mch
             rel = true
-            if block_given?
-                curr_mch_avgs = cmatch[1,@re.names.length]
-                yield curr_mch_avgs
+            curr_mch_avgs = cmatch[1,@re.names.length]
+            @pro_closure <<  lambda { seq_closure.call(*curr_mch_avgs) } if seq_closure
             end
         end
-        mmstr = rel_closure.call(mstr) if rel_closure.is_a? Proc
-        return ParseResult.new(result:rel,origin:ostr,match_str:@match_str+mstr,rest:(@rest+mmstr))
+        mmstr = re_closure.call(mstr) if rel_closure.is_a? Proc
+        @result = rel
+        @origin = ostr
+        @match_str = @match_str+mstr
+        @rest = (@rest+mmstr)
+        self
     end
 
     def match!(re,rel_closure,&block)
@@ -41,9 +46,9 @@ class ParsseResult
         when :rest
             @rest
         when :error
-            missing_method
+            @error_closure
         else
-            nil
+            missing_method
         end
     end
 
@@ -65,10 +70,10 @@ class ParsseResult
     end
 
     def eat (new_rel)
-        @origin = new_rel[:origin]
-        @match_str += new_rel[:match]
-        @rest = new_rel[:rest]
-        @result = new_rel[:result]
+        match_str = @match_str + new_rel[:match]
+        self = new_rel
+        @match_str = match_str
+        return self
     end
 
 
