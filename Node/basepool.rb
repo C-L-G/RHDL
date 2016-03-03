@@ -48,11 +48,8 @@ class BasePool
         end
     end
 
-    def parse(parsepkt,open_error)
-        ## dont parse same class nearby
-        core_parse parsepkt do
-            match
-        end
+    def parse(parsepkt)
+        core_parse parsepkt
         return @parseresult
     end
 
@@ -185,4 +182,46 @@ class BasePool
         return  @parseresult = parsepkt
     end
 
+end
+
+class AtomPool < BasePool
+    def initialize(name:"AtomPool",re:nil,outside_closures:[],pro_closure:nil,re_closure:nil)
+        super(name:name,outside_closures:outside_closures,pro_closure:pro_closure,re_closure:re_closure)
+        @re = re
+        #@parseresult = ParsseResult.new
+    end
+
+    def parse(parsepkt)
+        @parseresult = parsepkt
+        @parseresult.match @re,@re_closure,@pro_closure
+        if @parseresult[:result]
+            @outside_closures.each {|item| item.call(@parseresult[:match])}
+        end
+        return @parseresult
+    end
+
+end
+
+class TwinPool < BasePool
+
+    def initialize(name:"TwinPool",twinpools:[],outside_closures:[],pro_closure:nil,re_closure:nil)
+        super(name:name,outside_closures:outside_closures,pro_closure:pro_closure,re_closure:re_closure)
+        @pools = twinpools  ## parsepool array
+        @pools.each do |pool_item|
+            pool_item.outside_closures = outside_closures
+            pool_item.force = nil
+        end
+    end
+
+    def parse(parsepkt)
+        @parseresult = parsepkt
+        @pools.each do |pool|
+            rel =  pool.parse(@parseresult)
+            if rel[:result]
+                @parseresult.eat rel
+                break
+            end
+        end
+        return @parseresult
+    end
 end
