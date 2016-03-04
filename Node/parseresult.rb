@@ -21,7 +21,6 @@ class ParsseResult
             rel = true
             curr_mch_avgs = cmatch[1,@re.names.length]
             @pro_closure <<  lambda { seq_closure.call(*curr_mch_avgs) } if seq_closure
-            end
         end
         mmstr = re_closure.call(mstr) if rel_closure.is_a? Proc
         @result = rel
@@ -32,7 +31,7 @@ class ParsseResult
     end
 
     def match!(re,rel_closure,&block)
-        self = match(re,rel_closure,block)
+        match(re,rel_closure,block)
     end
 
     def [](sym)
@@ -71,12 +70,10 @@ class ParsseResult
 
     def eat (new_rel)
         match_str = @match_str + new_rel[:match]
-        self = new_rel
+        @error_stack |= new_rel.error_stack
+        @pro_closure |= new_rel.pro_closure
         @match_str = match_str
         return self
     end
-
-
-
 
 end

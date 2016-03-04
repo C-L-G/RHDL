@@ -1,12 +1,20 @@
+require "basepool.rb"
 class BondSeq
     attr_accessor :discontinue,:force
     def initialize(name:"Pool",force:nil,outside_closures:[],re_closure:nil,count:1,discontinue:false,pro_closure:nil)
         @force = force
         @outside_closures = outside_closures
-        @rel_closure = rel_closure
+        @re_closure = re_closure
         @count = count
         @discontinue = discontinue
         @name = name
+    end
+
+    def new(force:@force,discontinue:@discontinue)
+        new_self = self.clone
+        new_self.force = force
+        new_self.discontinue = discontinue
+        return new_self
     end
 
     def <(arg)
@@ -52,16 +60,15 @@ end
 
 class TwinPoolSeq
 
-    def initialize(name:"Twin",twinpools:nil,force:true,outside_closures:[],re_closure:nil,count:1,discontinue:false,pro_closure:nil)
-        @pools = twinpools  ## parsepool array
+    def initialize(name:"Twin",twinpools_class:nil,force:true,outside_closures:[],re_closure:nil,count:1,discontinue:false,pro_closure:nil)
+        @pools_class = twinpools_class  ## parsepool array
         super(name:name,force:force,outside_closures:outside_closures,re_closure:re_closure,count:count,discontinue:discontinue,pro_closure:pro_closure)
-        @pools.each do |pool_item|
-            pool_item.outside_closures = @outside_closures
-            pool_item.rel_closure = @rel_closure
-        end
     end
 
     def protein
-        twin_protein = TwinPool.new(name:@name,twinpools:@pools,outside_closures:@outside_closures,pro_closure:@pro_closure,re_closure:@re_closure)
+        new_pools = @pools_class.map do |class_item|
+            class_item.new(name:@name,outside_closures:@outside_closures,pro_closure:@pro_closure,re_closure:@re_closure)
+        end
+        twin_protein = TwinPool.new(name:@name,twinpools:new_pools,outside_closures:@outside_closures,pro_closure:@pro_closure,re_closure:@re_closure)
     end
 end

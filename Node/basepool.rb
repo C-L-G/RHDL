@@ -1,9 +1,32 @@
+require "parseresult.rb"
 class BasePool
+
+    ## Class method
+    def self.define_class_var(name,default=nil)
+        self.class.class_eval do
+            define_method name do
+                if class_variable_defined?('@@'+name.to_s)
+                    class_variable_get('@@'+name.to_s)
+                else
+                    default
+                end
+            end
+            define_method name.to_s+'=' do |arg|
+                class_variable_set("@@"+name.to_s,arg)
+            end
+        end
+    end
+
+    def self.class_vars(default,*names)
+        names.each do|item|
+            self.define_class_var item,default
+        end
+    end
+    ##
     @@curr_subseqs = []
     class_vars [],  :begin_seq_pools,:end_seq_pools,:subseqs,:complete_begin_seq_closure,
                     :complete_end_seq_closure,:complete_subseqs_closure,:complete_closure
-    class_vars nil,:inherit_subseqs,
-
+    class_vars nil,:inherit_subseqs
     attr_accessor :outside_closure,:dynamic_subseqs,:rel_closure
     def initialize(name:"Pool",outside_closure:[],pro_closure:nil,re_closure:nil)
         ## init
@@ -23,29 +46,6 @@ class BasePool
         @error_closure = lambda { |origin_str| puts "解析#{name}错误 不期望 #{origin_str[0..19]} ...."}
     #    @complete_begin_seq_closure << lambda { printf "START PARSE #{@name} --> ";p @subpools.map{|item| item[:pool].name}}
     #    @complete_end_seq_closure   << lambda { puts "COMPLETE PARSE #{@name}"}
-    end
-
-    ## Class method
-    def self.define_class_var(name,default=nil,define_check,vari_get)
-        self.class.class_eval do
-            define_method name do
-                if define_check.call('@@'+name.to_s)
-                    vari_get.call('@@'+name.to_s)
-                else
-                    default
-                end
-            end
-        end
-    end
-
-    def self.class_var(default=nil,name)
-        self.define_class_var(name,default,self.class_variable_defined?.to_proc,self.class_variable_get.to_proc)
-    end
-
-    def self.class_vars(default,&names)
-        names.each do|item|
-            self.class_var default,item
-        end
     end
 
     def parse(parsepkt)
@@ -78,9 +78,9 @@ class BasePool
      def match (parsepkt)
          @parseresult = parsepkt
          with_new_envirement do
-             if     match_begin.[:result] == nil ||
-                    match_subseqs.[:result] == nil ||
-                    match_end.[:result] == nil
+             if     match_begin().result == nil ||
+                    match_subseqs().result == nil ||
+                    match_end().result == nil
                 return @parseresult
             end
          end
@@ -178,7 +178,7 @@ class BasePool
             end
         end
         ## eval closure
-        self.class.complete_subseqs_closure.each {|item| item.call(parsepkt[:match])
+        self.class.complete_subseqs_closure.each {|item| item.call(parsepkt[:match])}
         return  @parseresult = parsepkt
     end
 
