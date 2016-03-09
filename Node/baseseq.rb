@@ -58,7 +58,7 @@ class PoolBondSeq < BondSeq
     end
 end
 
-class TwinPoolSeq
+class TwinPoolSeq < BondSeq
 
     def initialize(name:"Twin",twinpools_class:nil,force:true,outside_closures:[],re_closure:nil,count:1,discontinue:false,pro_closure:nil)
         @pools_class = twinpools_class  ## parsepool array
