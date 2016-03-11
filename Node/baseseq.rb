@@ -21,7 +21,7 @@ class BondSeq
         if @count
             @count < arg
         else
-            true
+            false
         end
     end
 
@@ -36,13 +36,16 @@ class BondSeq
 end
 
 class SingleBondSeq < BondSeq
-    def initialize(name:"Single",re:nil,force:true,outside_closures:[],re_closure:nil,count:1,discontinue:false,pro_closure:nil)
+    def initialize( name:"Single",re:nil,force:true,outside_closures:[],re_closure:nil,count:nil,
+                    discontinue:false,pro_closure:nil,match_space:nil)
         @re = re
+        @apool = Class.new(AtomPool)
+        @apool.class_variable_set("@@match_space",match_space)
         super(name:name,force:force,outside_closures:outside_closures,re_closure:re_closure,count:count,discontinue:discontinue,pro_closure:pro_closure)
     end
 
     def protein
-        new_protein = AtomPool.new(name:@name,re:@re,outside_closures:@outside_closures,re_closure:@rel_closure)
+        new_protein = @apool.new(name:@name,re:@re,outside_closures:@outside_closures,re_closure:@rel_closure)
     end
 end
 

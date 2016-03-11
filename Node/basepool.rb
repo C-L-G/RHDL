@@ -35,10 +35,10 @@ class BasePool
     @@level = 0
     class_vars [],  :begin_seq_pools,:end_seq_pools,:subseqs,:complete_begin_seq_closure,
                     :complete_end_seq_closure,:complete_subseqs_closure,:complete_closure
-    class_vars nil,:inherit_subseqs
+    class_vars nil,:inherit_subseqs,:match_space,:re_closure,:pro_closure
     class_vars "Pool",:name
-    attr_accessor :outside_closures,:dynamic_subseqs,:re_closure,:pro_closure
-    def initialize(name:"Pool",outside_closures:[],pro_closure:nil,re_closure:nil)
+    attr_accessor :outside_closures,:dynamic_subseqs,:inst_name
+    def initialize(name:"Pool",outside_closures:[])
         ## init
                                          ## BaseSeq [bs0,bs1]
         ## begin_seq_pools = begin_seq   ## pool array [{pool:,force:,closure:}] or  [[{pool:,force:,closure:},{pool:,force:,closure:,rel_closure}]...]
@@ -48,11 +48,9 @@ class BasePool
         ## complete_begin_seq_closure = []
         ## complete_end_seq_closure = []
         ## complete_subpools_closure = []
-        @outside_closures = outside_closures       ## eval at the end of parse
-        @re_closure = nil           ## process match string and add to rest
+        @outside_closures = outside_closures       ## eval at the end of parse         ## process match string and add to rest
         @dynamic_subseqs = []
         @parseresult = nil
-        @pro_closure = pro_closure
         @error_closure = lambda { |origin_str| puts "解析#{name}错误 不期望 #{origin_str[0..19]} ...."}
     #    @complete_begin_seq_closure << lambda { printf "START PARSE #{@name} --> ";p @subpools.map{|item| item[:pool].name}}
     #    @complete_end_seq_closure   << lambda { puts "COMPLETE PARSE #{@name}"}
@@ -65,6 +63,7 @@ class BasePool
         core_parse parsepkt
         @@level -= 1
         printf "#{'  '*@@level}LEVEL<<#{@@level}>>END #{name} "
+        #@parseresult[:rest] += @parseresult[:match]
         p @parseresult
         return @parseresult
     end
@@ -72,21 +71,10 @@ class BasePool
 
     def core_parse(parsepkt)
         @parseresult = ParseResult.new(result:nil,origin:parsepkt[:origin],match:'',rest:parsepkt[:rest])
-        @parseresult.strip
+        @parseresult.strip unless match_space
         @begin_archor = @parseresult[:rest].length
         match @parseresult
     end
-
-     def with_new_envirement(&block)
-         up_subseqs =  @@curr_subseqs
-         if inherit_subseqs
-              @dynamic_subseqs = @@curr_subseqs
-          else
-              @@curr_subseqs = subseqs
-          end
-         yield
-         @@curr_subseqs = up_subseqs
-     end
 
      def match (parsepkt)
          @parseresult = parsepkt
@@ -96,13 +84,14 @@ class BasePool
              return @parseresult if match_end().result==nil
          end
          @outside_closures.each {|item| item.call(@parseresult[:match])}
-         @parseresult[:rest] += @re_closure.call(@parseresult[:match]) if @re_closure
+         @parseresult[:rest] += re_closure().call(@parseresult[:match]) if re_closure
          return @parseresult
      end
 
      def match_seq(sequence,msg)
          curr_closure = []
          return @parseresult if sequence==nil || sequence.empty?
+         @parseresult[:result] = nil
          sequence.each do |baseseq_item|
              protein = baseseq_item.protein
              curr_result =  protein.parse(@parseresult)
@@ -145,14 +134,14 @@ class BasePool
     end
 
     def match_subseqs
-        puts "#{'  '*@@level}LEVEL>>#{@@level}<<SUB POOLS==============="
+        puts "#{'  '*@@level}=========SUB POOLS==============="
         curr_closure = []
-        parsepkt = @parseresult
+        #parsepkt = @parseresult
         ## subpools status
         parse_execute = nil
         mask_seq_index = nil
         sub_seqs = self.class.subseqs | @dynamic_subseqs
-        return parsepkt if sub_seqs==nil || sub_seqs.empty?
+        return @parseresult if sub_seqs==nil || sub_seqs.empty?
         subseqs_count = Array.new(sub_seqs.size,0)
         ## loop
         begin
@@ -165,13 +154,15 @@ class BasePool
                 ##
                 baseseq_item = sub_seqs[baseseq_item_index]
                 protein = baseseq_item.protein
-                parsepkt.eat protein.parse(parsepkt)
-                if (parsepkt.result == nil)
+                #parsepkt.eat protein.parse(parsepkt)
+                sub_parsepkt = protein.parse @parseresult
+                @parseresult.eat sub_parsepkt
+                unless sub_parsepkt.result
 
                 else
                     parse_execute = true
                     ## record next mask
-                    if sub_seqs[baseseq_item_index].discontinue
+                    if baseseq_item.discontinue
                         mask_seq_index = baseseq_item_index
                     else
                         mask_seq_index = nil
@@ -179,27 +170,30 @@ class BasePool
                     ##
                     subseqs_count[baseseq_item_index] += 1
                     if baseseq_item < subseqs_count[baseseq_item_index]
-                        parsepkt.result = nil
-                        parsepkt.error_stack << lambda { raise "多次解析 #{protein.name} 错误"}
-                        return parsepkt
+                        @parseresult.result = nil
+                        @parseresult.error_stack << lambda { raise "多次解析 #{protein.name} 错误"}
+                        #puts "多次解析 #{protein.name} 错误"
+                        return @parseresult
                     end
                 end
             end
         end while parse_execute
         ##
+        puts "#{'  '*@@level}**************SUB POOLS***************"
         subseqs_count.each_index do |index|
-            if sub_seqs[index] > subpools_count[index]
-                parsepkt.error_stack << lambda { raise "解析次数不足 #{protein.name} 错误"}
+            if sub_seqs[index] > subseqs_count[index]
+                @parseresult.error_stack << lambda { raise "解析次数不足 #{protein.name} 错误"}
             end
         end
         ## eval closure
         self.class.complete_subseqs_closure.each {|item| item.call(parsepkt[:match])}
-        return  @parseresult = parsepkt
+        return  @parseresult
     end
 
 end
 
 class AtomPool < BasePool
+    @@re = nil
     def initialize(name:"AtomPool",re:nil,outside_closures:[],pro_closure:nil,re_closure:nil)
         super(name:name,outside_closures:outside_closures,pro_closure:pro_closure,re_closure:re_closure)
         @re = re
@@ -207,17 +201,18 @@ class AtomPool < BasePool
     end
 
     def parse(parsepkt)
-        puts "#{'  '*@@level}LEVEL>>#{@@level}<<PARSE ATOM #{@inst_name}"
+    #    puts "#{'  '*@@level}LEVEL>>#{@@level}<<PARSE ATOM #{@inst_name}"
         @@level += 1
         @parseresult = ParseResult.new(result:nil,origin:parsepkt[:origin],match:'',rest:parsepkt[:rest])
-        @parseresult.strip
-        @parseresult.match @re,@re_closure,@pro_closure
+        @parseresult.strip unless match_space
+        @parseresult.match @@re,@re_closure,@pro_closure
         if @parseresult[:result]
             @outside_closures.each {|item| item.call(@parseresult[:match])}
         end
         @@level -= 1
-        printf "#{'  '*@@level}LEVEL<<#{@@level}>>END ATOM #{@inst_name}"
-        p @parseresult
+        @parseresult[:rest] += @parseresult[:match]
+    #    printf "#{'  '*@@level}LEVEL<<#{@@level}>>END ATOM #{@inst_name}"
+    #    p @parseresult
         return @parseresult
     end
 
@@ -234,10 +229,10 @@ class TwinPool < BasePool
     end
 
     def parse(parsepkt)
-        puts "#{'  '*@@level}LEVEL>>#{@@level}<<PARSE TWIN #{@inst_name}"
+    #    puts "#{'  '*@@level}LEVEL>>#{@@level}<<PARSE TWIN #{@inst_name}"
         @@level += 1
         @parseresult = ParseResult.new(result:nil,origin:parsepkt[:origin],match:'',rest:parsepkt[:rest])
-        @parseresult.strip
+        @parseresult.strip unless match_space
         @pools.each do |pool|
             rel =  pool.parse(@parseresult)
             if rel[:result]
@@ -246,8 +241,9 @@ class TwinPool < BasePool
             end
         end
         @@level -= 1
-        printf "#{'  '*@@level}LEVEL<<#{@@level}>>END TWIN #{@inst_name}"
-        p @parseresult
+        @parseresult[:rest] += @parseresult[:match]
+    #    printf "#{'  '*@@level}LEVEL<<#{@@level}>>END TWIN #{@inst_name}"
+    #    p @parseresult
         return @parseresult
     end
 end

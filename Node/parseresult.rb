@@ -69,7 +69,8 @@ class ParseResult
         end
     end
 
-    def eat (new_rel)
+    def eat (new_rel)   #dont include result
+        return self unless new_rel[:result]
         @origin = new_rel.origin
         @rest = new_rel.rest
         match_str = @match_str + new_rel[:match]
@@ -79,14 +80,10 @@ class ParseResult
         return self
     end
 
-    def eat_all (new_rel)
-        @origin = new_rel.origin
-        @rest = new_rel.rest
+    def eat_all (new_rel) #include result
+        return self unless new_rel[:result]
+        eat new_rel
         @result = new_rel.result
-        match_str = @match_str + new_rel[:match]
-        @error_stack |= new_rel.error_stack
-        @pro_closure |= new_rel.pro_closure
-        @match_str = match_str
         return self
     end
 

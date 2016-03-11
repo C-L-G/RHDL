@@ -3,7 +3,7 @@ require "basepool.rb"
 require "parseresult.rb"
 class TestPoolSeqs
 ## Atom Seq Build
-def self.define_atom_seq(name,re,discontinue=nil)
+def self.define_atom_seq(name,re,discontinue=nil,match_space=nil)
     new_seq = SingleBondSeq.new(name:name.to_s,re:re,discontinue:discontinue)
     class_variable_set('@@'+name.to_s+'_seq',new_seq)
     self.class.send :define_method,name.to_s+'_seq',Proc.new{class_variable_get('@@'+name.to_s+'_seq') }
@@ -30,6 +30,7 @@ define_atom_seq :mul_lines_comment,/\A\/\*.*?\*\//m
 define_atom_seq :symbol,/\A(?:\*\*|\*|%|\+|-|\/|==|!=)/,discontinue=true
 define_atom_seq :pre_symbol,/\A(?:~)/,discontinue=true
 define_atom_seq :comma,/\A,/,discontinue=true
+define_atom_seq :close_block_with_name,/(?:\A:\s*\w+|\s)/,discontinue=true,match_space:true
 
 
 def self.define_frame_edge(name,begin_seqs_hash_array:[],end_seqs_hash_array:[])
@@ -68,8 +69,8 @@ def self.define_generice_block(*args)
                                 {:name=>"id",       re:/\A\w+\s/,                force:true  }
                             ],
                             end_seqs_hash_array:[
-                                {:name=>"head",     re:Regexp.new("\\Aend#{item.to_s}\\s"), force:true    },
-                                {:name=>":",        re:/\A:\s*\w+/,   force:nil     }
+                                {:name=>"head",     re:Regexp.new("\\Aend#{item.to_s}"), force:true    },
+                                {:name=>":",        re:/(?:\A:\s*\w+|\s)/,   force:true     }
                             ]
     end
 end

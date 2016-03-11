@@ -1,3 +1,18 @@
-module  XXXX
+module  XXXX  //head comment
+/*
+    body comment
+*/
+/*
+parameter PPP
 
-endmodule
+endparameter
+
+interface III
+
+endinterface
+
+localparam LLL
+
+endlocalparamr
+*/
+endmodule:
